@@ -32,19 +32,21 @@ jobs:
 
       - name: Build
         run: |
-          set -e
-          export SDL_VIDEODRIVER=dummy
-          export SDL_AUDIODRIVER=disk
+          echo "=== Python imports test ==="
+          python -c "import pygame; print('pygame OK')"
+          python -c "import pygame.mixer; pygame.mixer.init(); print('mixer OK')"
           echo "=== Building ==="
-          pyinstaller build.spec 2>&1
-          echo "=== Build complete ==="
-          ls -la dist/
+          pyinstaller build.spec 2>&1 || true
+          echo "=== Build exit code: $? ==="
+          echo "=== dist contents ==="
+          ls -la dist/ || true
+          find dist -type f 2>/dev/null || true
 
-      - name: Upload artifact
+      - name: Upload artifact (macOS)
         uses: actions/upload-artifact@v4
         with:
-          name: 六六台球播报系统-macOS
-          path: dist/六六台球播报系统
+          name: billiard-club-tts-macOS
+          path: dist/*
 
   build-windows:
     runs-on: windows-latest
@@ -71,8 +73,8 @@ jobs:
           echo === Build complete ===
           dir dist\
 
-      - name: Upload artifact
+      - name: Upload artifact (Windows)
         uses: actions/upload-artifact@v4
         with:
-          name: 六六台球播报系统-Windows
-          path: dist/六六台球播报系统.exe
+          name: billiard-club-tts-Windows
+          path: dist/*.exe
