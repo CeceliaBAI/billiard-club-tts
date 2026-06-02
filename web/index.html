@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>六六台球俱乐部播报系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            min-height: 100vh;
+            overflow-y: auto;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            position: relative;
+        }
+
+        /* 动态背景球 */
+        .bg-orb {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.6;
+            animation: float 20s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        .bg-orb:nth-child(1) {
+            width: 55vw;
+            height: 55vw;
+            max-width: 300px;
+            max-height: 300px;
+            background: radial-gradient(circle, #667eea, #764ba2);
+            top: -100px;
+            left: -50px;
+            animation-delay: 0s;
+        }
+
+        .bg-orb:nth-child(2) {
+            width: 45vw;
+            height: 45vw;
+            max-width: 250px;
+            max-height: 250px;
+            background: radial-gradient(circle, #f093fb, #f5576c);
+            bottom: -80px;
+            right: -50px;
+            animation-delay: -7s;
+        }
+
+        .bg-orb:nth-child(3) {
+            width: 35vw;
+            height: 35vw;
+            max-width: 200px;
+            max-height: 200px;
+            background: radial-gradient(circle, #4facfe, #00f2fe);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation-delay: -14s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(30px, -30px) scale(1.1); }
+            50% { transform: translate(-20px, 20px) scale(0.95); }
+            75% { transform: translate(20px, 10px) scale(1.05); }
+        }
+
+        /* 主容器 - 毛玻璃面板 */
+        .container {
+            position: relative;
+            z-index: 1;
+            padding: 30px 24px 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 标题 */
+        .title {
+            text-align: center;
+            font-size: clamp(18px, 4vw, 24px);
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+            letter-spacing: 2px;
+        }
+
+        /* 按钮网格 */
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+            flex: 1;
+            align-content: start;
+        }
+
+        /* 液态玻璃按钮 */
+        .glass-btn {
+            position: relative;
+            min-height: 90px;
+            height: auto;
+            padding: 20px 16px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: clamp(15px, 3vw, 18px);
+            font-weight: 600;
+            color: #fff;
+            letter-spacing: 1px;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+            /* 玻璃效果 */
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.15) 0%,
+                rgba(255, 255, 255, 0.05) 100%
+            );
+            backdrop-filter: blur(12px) saturate(180%);
+            -webkit-backdrop-filter: blur(12px) saturate(180%);
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        /* 按钮光泽层 */
+        .glass-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50%;
+            background: linear-gradient(
+                180deg,
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            border-radius: 20px 20px 0 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        /* 边框光效 */
+        .glass-btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 20px;
+            padding: 1px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.4),
+                rgba(255, 255, 255, 0.1),
+                rgba(255, 255, 255, 0.4)
+            );
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        /* 悬停效果 */
+        .glass-btn:hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow:
+                0 12px 40px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.4),
+                0 0 30px rgba(255, 255, 255, 0.1);
+        }
+
+        .glass-btn:hover::after {
+            opacity: 1;
+        }
+
+        /* 按下效果 */
+        .glass-btn:active {
+            transform: translateY(0) scale(0.98);
+            box-shadow:
+                0 4px 16px rgba(0, 0, 0, 0.3),
+                inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        /* 播放中状态 */
+        .glass-btn.playing {
+            background: linear-gradient(
+                135deg,
+                rgba(100, 200, 255, 0.3) 0%,
+                rgba(100, 200, 255, 0.1) 100%
+            );
+            box-shadow:
+                0 8px 32px rgba(100, 200, 255, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.4),
+                0 0 40px rgba(100, 200, 255, 0.2);
+            animation: btn-pulse 1.5s ease-in-out infinite;
+        }
+
+        /* 禁用状态 */
+        .glass-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* 涟漪效果 */
+        .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: radial-gradient(
+                circle,
+                rgba(255, 255, 255, 0.6) 0%,
+                rgba(255, 255, 255, 0) 70%
+            );
+            transform: scale(0);
+            animation: ripple-anim 0.6s ease-out forwards;
+            pointer-events: none;
+        }
+
+        @keyframes ripple-anim {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
+
+        @keyframes btn-pulse {
+            0%, 100% { box-shadow: 0 8px 32px rgba(100, 200, 255, 0.3); }
+            50% { box-shadow: 0 8px 40px rgba(100, 200, 255, 0.5); }
+        }
+
+        /* ---- 停止按钮 ---- */
+        .stop-container {
+            display: none;
+            justify-content: center;
+            margin: 14px 0 8px;
+        }
+
+        .stop-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 28px;
+            border: 1px solid rgba(255, 100, 100, 0.4);
+            border-radius: 14px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 80, 80, 0.2) 0%,
+                rgba(255, 80, 80, 0.08) 100%
+            );
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            color: #ff9090;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            letter-spacing: 1px;
+        }
+
+        .stop-btn:hover {
+            background: linear-gradient(
+                135deg,
+                rgba(255, 80, 80, 0.35) 0%,
+                rgba(255, 80, 80, 0.15) 100%
+            );
+            border-color: rgba(255, 100, 100, 0.7);
+            box-shadow: 0 4px 20px rgba(255, 80, 80, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .stop-btn:active {
+            transform: scale(0.96);
+        }
+
+        .stop-icon {
+            font-size: 12px;
+        }
+
+        /* ---- 音量滑块 ---- */
+        .volume-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            margin-bottom: 4px;
+        }
+
+        .volume-label {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+            flex-shrink: 0;
+            user-select: none;
+        }
+
+        .volume-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: linear-gradient(
+                90deg,
+                rgba(100, 200, 255, 0.5) 0%,
+                rgba(100, 200, 255, 0.1) 100%
+            );
+            outline: none;
+            cursor: pointer;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            transition: transform 0.15s;
+        }
+
+        .volume-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+        }
+
+        .volume-display {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            min-width: 36px;
+            text-align: right;
+            flex-shrink: 0;
+            user-select: none;
+        }
+
+        /* ---- 设备选择器 ---- */
+        .device-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 20px 12px;
+        }
+
+        .device-label {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+            flex-shrink: 0;
+            user-select: none;
+        }
+
+        .device-select {
+            flex: 1;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(255, 255, 255, 0.8);
+            font-family: inherit;
+            font-size: 12px;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .device-select:hover,
+        .device-select:focus {
+            border-color: rgba(100, 200, 255, 0.4);
+        }
+
+        .device-select option {
+            background: #302b63;
+            color: #fff;
+        }
+
+        /* ---- 状态栏 ---- */
+        .status-bar {
+            margin-top: auto;
+            padding: 12px 20px;
+            border-radius: 14px;
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.08) 0%,
+                rgba(255, 255, 255, 0.03) 100%
+            );
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .status-text {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.7);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+            box-shadow: 0 0 8px #4ade80;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-dot.playing {
+            background: #60a5fa;
+            box-shadow: 0 0 8px #60a5fa;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .signature {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* ---- 响应式布局 ---- */
+        @media (max-width: 400px) {
+            .button-grid {
+                grid-template-columns: 1fr;
+            }
+            .glass-btn {
+                min-height: 70px;
+                padding: 14px 12px;
+            }
+            .container {
+                padding: 20px 14px 14px;
+            }
+            .volume-row,
+            .device-row {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 动态背景球 -->
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+
+    <div class="container">
+        <h1 class="title" id="title">六六台球俱乐部播报系统</h1>
+
+        <div class="button-grid" id="button-grid">
+            <!-- 按钮由 JS 动态生成 -->
+        </div>
+
+        <!-- 停止按钮（默认隐藏，播放时显示） -->
+        <div class="stop-container" id="stop-container">
+            <button class="stop-btn" onclick="stopPlayback()">
+                <span class="stop-icon">■</span>
+                <span>停止播放</span>
+            </button>
+        </div>
+
+        <!-- 音量控制 -->
+        <div class="volume-row">
+            <span class="volume-label">🔊</span>
+            <input type="range" id="volume-slider" class="volume-slider"
+                   min="0" max="100" value="100"
+                   oninput="onVolumeChange(this.value)">
+            <span class="volume-display" id="volume-display">100%</span>
+        </div>
+
+        <!-- 音频设备选择 -->
+        <div class="device-row" id="device-row" style="display:none;">
+            <span class="device-label">🔈</span>
+            <select id="device-select" class="device-select" onchange="onDeviceChange(this.value)">
+                <option value="">系统默认</option>
+            </select>
+        </div>
+
+        <!-- 状态栏 -->
+        <div class="status-bar">
+            <div class="status-text">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-label">正在初始化...</span>
+            </div>
+            <span class="signature">Gift from Wen</span>
+        </div>
+    </div>
+
+    <script>
+        // 按钮配置（从 Python 注入）
+        let BUTTONS = [];
+        let debounceMap = {};
+        let currentVolume = 1.0;
+
+        // ---- 初始化按钮 ----
+        function initButtons(buttons, title) {
+            BUTTONS = buttons;
+            if (title) {
+                document.getElementById('title').textContent = title;
+                document.title = title;
+            }
+
+            const grid = document.getElementById('button-grid');
+            grid.innerHTML = '';
+
+            BUTTONS.forEach((btn, index) => {
+                const el = document.createElement('button');
+                el.className = 'glass-btn';
+                el.textContent = btn.label;
+                el.dataset.file = btn.file;
+                el.dataset.index = index;
+
+                el.addEventListener('click', (e) => handleClick(e, el, btn));
+                grid.appendChild(el);
+            });
+        }
+
+        // ---- 点击处理 ----
+        function handleClick(e, el, btn) {
+            if (el.disabled || debounceMap[btn.file]) return;
+
+            // 涟漪效果
+            createRipple(e, el);
+
+            // 防抖
+            el.disabled = true;
+            debounceMap[btn.file] = true;
+
+            // 播放中状态
+            el.classList.add('playing');
+
+            // 调用 Python 后端
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.play_audio(btn.file);
+            } else {
+                console.log('Play:', btn.file);
+            }
+
+            // 恢复按钮（1秒防抖）
+            setTimeout(() => {
+                el.disabled = false;
+                debounceMap[btn.file] = false;
+                el.classList.remove('playing');
+            }, 1000);
+        }
+
+        // ---- 涟漪效果 ----
+        function createRipple(e, el) {
+            const ripple = document.createElement('span');
+            ripple.className = 'ripple';
+
+            const rect = el.getBoundingClientRect();
+            const size = Math.max(rect.width, rect.height);
+            const x = e.clientX - rect.left - size / 2;
+            const y = e.clientY - rect.top - size / 2;
+
+            ripple.style.width = ripple.style.height = size + 'px';
+            ripple.style.left = x + 'px';
+            ripple.style.top = y + 'px';
+
+            el.appendChild(ripple);
+            setTimeout(() => ripple.remove(), 600);
+        }
+
+        // ---- 停止播放 ----
+        function stopPlayback() {
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.stop_audio();
+            }
+            // 重置所有按钮状态
+            document.querySelectorAll('.glass-btn.playing').forEach(btn => {
+                btn.classList.remove('playing');
+            });
+            document.getElementById('stop-container').style.display = 'none';
+            document.getElementById('status-dot').classList.remove('playing');
+        }
+
+        function setPlaybackState(playing) {
+            const container = document.getElementById('stop-container');
+            const dot = document.getElementById('status-dot');
+
+            if (playing) {
+                container.style.display = 'flex';
+                dot.classList.add('playing');
+            } else {
+                container.style.display = 'none';
+                dot.classList.remove('playing');
+                // 清除所有按钮的播放状态
+                document.querySelectorAll('.glass-btn.playing').forEach(btn => {
+                    btn.classList.remove('playing');
+                });
+            }
+        }
+
+        // ---- 音量控制 ----
+        function setVolume(vol) {
+            // Python 启动时调用，vol 为 0.0 ~ 1.0
+            currentVolume = vol;
+            const pct = Math.round(vol * 100);
+            document.getElementById('volume-slider').value = pct;
+            document.getElementById('volume-display').textContent = pct + '%';
+        }
+
+        function onVolumeChange(value) {
+            // value 为 0 ~ 100（来自滑块）
+            currentVolume = value / 100;
+            document.getElementById('volume-display').textContent = value + '%';
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.set_volume(currentVolume);
+            }
+        }
+
+        // ---- 设备选择 ----
+        function populateDevices(devicesJson) {
+            const devices = JSON.parse(devicesJson);
+            const select = document.getElementById('device-select');
+            const row = document.getElementById('device-row');
+
+            if (devices.length === 0) {
+                row.style.display = 'none';
+                return;
+            }
+
+            row.style.display = 'flex';
+            select.innerHTML = '<option value="">系统默认</option>';
+
+            devices.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                opt.textContent = d.name + (d.is_default ? ' (默认)' : '');
+                if (d.is_default) {
+                    opt.selected = true;
+                }
+                select.appendChild(opt);
+            });
+        }
+
+        function onDeviceChange(deviceId) {
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.set_device(deviceId);
+            }
+        }
+
+        // ---- 状态更新（Python 调用） ----
+        function updateStatus(text) {
+            document.getElementById('status-label').textContent = text;
+        }
+
+        // ---- 测试用：无 pywebview 时的 fallback ----
+        if (!window.pywebview) {
+            initButtons([
+                { label: "欢迎光临", file: "欢迎.mp3" },
+                { label: "禁止烟头", file: "烟头.mp3" },
+                { label: "加时提醒", file: "关灯.mp3" },
+                { label: "离店提醒", file: "离店.mp3" }
+            ], "六六台球俱乐部播报系统");
+            updateStatus("就绪（预览模式）");
+            setVolume(1.0);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+    "title": "六六台球俱乐部播报系统",
+    "always_on_top": true,
+    "audio_dir": "/Users/wentianshu/billiard-club-tts/audio",
+    "buttons": [
+        {
+            "label": "欢迎光临",
+            "file": "欢迎.mp3"
+        },
+        {
+            "label": "禁止烟头",
+            "file": "烟头.mp3"
+        },
+        {
+            "label": "加时提醒",
+            "file": "关灯.mp3"
+        },
+        {
+            "label": "离店提醒",
+            "file": "离店.mp3"
+        }
+    ],
+    "volume": 1,
+    "output_device": "MacBook Pro扬声器",
+    "window_width": 550.0,
+    "window_height": 500.0
+}
