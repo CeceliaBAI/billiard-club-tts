@@ -33,6 +33,7 @@ if sys.platform == 'darwin':
     hiddenimports += [
         'pystray._darwin',
         'pyobjc',
+        'libdispatch',
     ]
 elif sys.platform == 'win32':
     hiddenimports += [

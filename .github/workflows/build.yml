@@ -33,6 +33,8 @@ jobs:
       - name: Build
         run: |
           set -e
+          export SDL_VIDEODRIVER=dummy
+          export SDL_AUDIODRIVER=disk
           echo "=== Building ==="
           pyinstaller build.spec 2>&1
           echo "=== Build complete ==="
