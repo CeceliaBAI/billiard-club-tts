@@ -39,17 +39,16 @@ jobs:
           python -c "import pygame; print('pygame OK')"
           python -c "import pygame.mixer; pygame.mixer.init(); print('mixer OK')"
           echo "=== Building ==="
-          pyinstaller build.spec 2>&1 || true
+          pyinstaller build.spec 2>&1
           echo "=== Build exit code: $? ==="
           echo "=== dist contents ==="
-          ls -la dist/ || true
-          find dist -type f 2>/dev/null || true
+          ls -laR dist/ || true
 
       - name: Upload artifact (macOS)
         uses: actions/upload-artifact@v4
         with:
           name: billiard-club-tts-macOS
-          path: dist/*
+          path: dist/六六台球播报系统.app
 
   build-windows:
     runs-on: windows-latest

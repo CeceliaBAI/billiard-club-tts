@@ -86,3 +86,13 @@ exe = EXE(
     entitlements_file=None,
     icon=icon_path,
 )
+
+# macOS: 打包为 .app 避免终端弹窗
+if sys.platform == 'darwin':
+    from PyInstaller.utils.osx import BUNDLE as make_bundle
+    app = make_bundle(
+        exe,
+        name='六六台球播报系统.app',
+        icon=icon_path,
+        bundle_identifier='com.billiardclub.tts',
+    )
