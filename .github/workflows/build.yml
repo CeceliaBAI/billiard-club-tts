@@ -7,8 +7,9 @@ on:
 
 permissions:
   contents: read
-  actions: write
-  packages: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-macos:
@@ -23,11 +24,19 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pywebview pygame pystray Pillow sounddevice pyobjc-framework-Quartz
+          set -e
+          pip install --upgrade pip
+          pip install pywebview pygame pystray Pillow sounddevice pyobjc-framework-Quartz pyobjc-framework-Cocoa
           pip install pyinstaller
+          pip list 2>&1
 
       - name: Build
-        run: pyinstaller build.spec
+        run: |
+          set -e
+          echo "=== Building ==="
+          pyinstaller build.spec 2>&1
+          echo "=== Build complete ==="
+          ls -la dist/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -47,11 +56,18 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install --upgrade pip
           pip install pywebview pygame pystray Pillow sounddevice pywin32
           pip install pyinstaller
+          pip list
 
       - name: Build
-        run: pyinstaller build.spec
+        shell: cmd
+        run: |
+          echo === Building ===
+          pyinstaller build.spec
+          echo === Build complete ===
+          dir dist\
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
