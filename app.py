@@ -414,7 +414,10 @@ class App:
             import pystray
             from PIL import Image, ImageDraw
 
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+            if getattr(sys, "frozen", False):
+                base_dir = sys._MEIPASS
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
             icon_path = os.path.join(base_dir, "assets", "logo.png")
 
             if os.path.exists(icon_path):
