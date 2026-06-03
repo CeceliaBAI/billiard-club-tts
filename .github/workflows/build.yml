@@ -44,6 +44,11 @@ jobs:
           echo "=== dist contents ==="
           ls -laR dist/ || true
 
+      - name: Ad-hoc code sign (macOS)
+        run: |
+          codesign --force --deep --sign - dist/六六台球播报系统.app
+          echo "=== Code sign done ==="
+
       - name: Upload artifact (macOS)
         uses: actions/upload-artifact@v4
         with:
