@@ -87,11 +87,4 @@ exe = EXE(
     icon=icon_path,
 )
 
-# macOS: 创建 .app 外壳（解决终端弹窗问题）
-if sys.platform == 'darwin':
-    app = BUNDLE(
-        exe,
-        name='六六台球播报系统.app',
-        icon=icon_path,
-        bundle_identifier='com.billiardclub.tts',
-    )
+# macOS .app 外壳在 CI 步骤中手动创建，避免 PyInstaller BUNDLE 兼容性问题

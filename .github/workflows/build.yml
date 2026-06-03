@@ -35,14 +35,55 @@ jobs:
 
       - name: Build
         run: |
-          echo "=== Python imports test ==="
-          python -c "import pygame; print('pygame OK')"
-          python -c "import pygame.mixer; pygame.mixer.init(); print('mixer OK')"
           echo "=== Building ==="
           pyinstaller build.spec 2>&1
           echo "=== Build exit code: $? ==="
           echo "=== dist contents ==="
           ls -laR dist/ || true
+
+      - name: Create macOS .app bundle
+        run: |
+          APP_NAME="六六台球播报系统"
+          EXE_PATH="dist/${APP_NAME}"
+          APP_BUNDLE="dist/${APP_NAME}.app"
+
+          mkdir -p "${APP_BUNDLE}/Contents/MacOS"
+          mkdir -p "${APP_BUNDLE}/Contents/Resources"
+
+          # 移动可执行文件
+          cp "${EXE_PATH}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+
+          # 复制图标
+          cp assets/icon.icns "${APP_BUNDLE}/Contents/Resources/"
+
+          # 生成 Info.plist
+          cat > "${APP_BUNDLE}/Contents/Info.plist" << PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>${APP_NAME}</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.billiardclub.tts</string>
+              <key>CFBundleName</key>
+              <string>${APP_NAME}</string>
+              <key>CFBundleIconFile</key>
+              <string>icon.icns</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.13</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          echo "=== .app bundle created ==="
+          ls -laR "${APP_BUNDLE}"
 
       - name: Ad-hoc code sign (macOS)
         run: |
