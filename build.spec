@@ -74,7 +74,7 @@ exe = EXE(
     name='六六台球播报系统',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
+    strip=False,
     upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
@@ -82,7 +82,7 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
-    codesign_identity="-" if sys.platform == 'darwin' else None,
+    codesign_identity=None,
     entitlements_file=None,
     icon=icon_path,
 )

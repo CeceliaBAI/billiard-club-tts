@@ -43,31 +43,33 @@ jobs:
 
       - name: Create macOS .app bundle
         run: |
+          set -e
           APP_NAME="六六台球播报系统"
-          EXE_DIR="dist/${APP_NAME}"
+          EXE_PATH="dist/${APP_NAME}"
           APP_BUNDLE="dist/${APP_NAME}.app"
+
+          echo "=== Checking EXE ==="
+          ls -la "${EXE_PATH}" || { echo "EXE not found!"; exit 1; }
 
           mkdir -p "${APP_BUNDLE}/Contents/MacOS"
           mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
-          # 复制整个 onedir 输出（可执行文件 + 依赖 + 数据文件）
-          cp -R "${EXE_DIR}/" "${APP_BUNDLE}/Contents/MacOS/"
+          cp "${EXE_PATH}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+          chmod +x "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 
-          # 复制图标
           cp assets/icon.icns "${APP_BUNDLE}/Contents/Resources/"
 
-          # 生成 Info.plist
-          cat > "${APP_BUNDLE}/Contents/Info.plist" << PLIST
+          cat > "${APP_BUNDLE}/Contents/Info.plist" << 'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>CFBundleExecutable</key>
-              <string>${APP_NAME}</string>
+              <string>六六台球播报系统</string>
               <key>CFBundleIdentifier</key>
               <string>com.billiardclub.tts</string>
               <key>CFBundleName</key>
-              <string>${APP_NAME}</string>
+              <string>六六台球播报系统</string>
               <key>CFBundleIconFile</key>
               <string>icon.icns</string>
               <key>CFBundlePackageType</key>
