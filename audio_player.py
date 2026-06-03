@@ -53,9 +53,13 @@ class AudioPlayer:
             self._on_status_change(status)
 
     def set_volume(self, volume: float):
-        """设置播放音量。volume: 0.0（静音）到 1.0（最大）。"""
+        """设置播放音量。volume: 0.0（静音）到 1.0（最大）。
+
+        不在此处初始化 mixer（避免阻塞启动）。
+        实际音量在 _worker 播放前通过 set_volume 应用到 mixer。
+        """
         self._volume = max(0.0, min(1.0, volume))
-        if self._ensure_init():
+        if self._initialized:
             pygame.mixer.music.set_volume(self._volume)
 
     def get_volume(self) -> float:

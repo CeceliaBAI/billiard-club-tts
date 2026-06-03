@@ -44,14 +44,14 @@ jobs:
       - name: Create macOS .app bundle
         run: |
           APP_NAME="六六台球播报系统"
-          EXE_PATH="dist/${APP_NAME}"
+          EXE_DIR="dist/${APP_NAME}"
           APP_BUNDLE="dist/${APP_NAME}.app"
 
           mkdir -p "${APP_BUNDLE}/Contents/MacOS"
           mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
-          # 移动可执行文件
-          cp "${EXE_PATH}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+          # 复制整个 onedir 输出（可执行文件 + 依赖 + 数据文件）
+          cp -R "${EXE_DIR}/" "${APP_BUNDLE}/Contents/MacOS/"
 
           # 复制图标
           cp assets/icon.icns "${APP_BUNDLE}/Contents/Resources/"

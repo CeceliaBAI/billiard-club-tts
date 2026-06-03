@@ -112,15 +112,8 @@ class App:
         self.player.set_status_callback(self._update_status)
         self._update_status("就绪")
 
-        # 注入设备列表
-        try:
-            devices = self.get_audio_devices()
-            if devices:
-                devices_json = json.dumps(devices, ensure_ascii=False)
-                escaped_devices = devices_json.replace("\\", "\\\\").replace("'", "\\'")
-                self.window.evaluate_js(f"populateDevices('{escaped_devices}')")
-        except Exception as e:
-            print(f"[设备] 注入设备列表失败: {e}")
+        # 异步注入设备列表（sounddevice.query_devices 可能较慢）
+        threading.Thread(target=self._inject_devices, daemon=True).start()
 
         # 在 webview 创建 NSApplication 之后再启动托盘
         self._start_tray()
@@ -135,6 +128,17 @@ class App:
                 self.window.evaluate_js("setPlaybackState(true)")
             elif text in ("就绪", "已停止"):
                 self.window.evaluate_js("setPlaybackState(false)")
+
+    def _inject_devices(self):
+        """在后台线程枚举音频设备，避免阻塞 UI。"""
+        try:
+            devices = self.get_audio_devices()
+            if devices and hasattr(self, "window") and self.window:
+                devices_json = json.dumps(devices, ensure_ascii=False)
+                escaped = devices_json.replace("\\", "\\\\").replace("'", "\\'")
+                self.window.evaluate_js(f"populateDevices('{escaped}')")
+        except Exception as e:
+            print(f"[设备] 注入设备列表失败: {e}")
 
     # ---- 音频设备枚举 ----
 
