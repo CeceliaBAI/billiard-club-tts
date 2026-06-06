@@ -510,6 +510,7 @@
 
         // ---- 初始化按钮 ----
         function initButtons(buttons, title) {
+            if (!Array.isArray(buttons)) return;
             BUTTONS = buttons;
             if (title) {
                 document.getElementById('title').textContent = title;
@@ -627,12 +628,11 @@
         }
 
         // ---- 设备选择 ----
-        function populateDevices(devicesJson) {
-            const devices = JSON.parse(devicesJson);
-            const select = document.getElementById('device-select');
-            const row = document.getElementById('device-row');
+        function populateDevices(devices) {
+            var select = document.getElementById('device-select');
+            var row = document.getElementById('device-row');
 
-            if (devices.length === 0) {
+            if (!devices || devices.length === 0) {
                 row.style.display = 'none';
                 return;
             }
@@ -640,8 +640,8 @@
             row.style.display = 'flex';
             select.innerHTML = '<option value="">系统默认</option>';
 
-            devices.forEach(d => {
-                const opt = document.createElement('option');
+            devices.forEach(function(d) {
+                var opt = document.createElement('option');
                 opt.value = d.id;
                 opt.textContent = d.name + (d.is_default ? ' (默认)' : '');
                 if (d.is_default) {
@@ -665,12 +665,12 @@
         // ---- 测试用：无 pywebview 时的 fallback ----
         if (!window.pywebview) {
             initButtons([
-                { label: "欢迎光临", file: "欢迎.mp3" },
-                { label: "禁止烟头", file: "烟头.mp3" },
-                { label: "加时提醒", file: "关灯.mp3" },
-                { label: "离店提醒", file: "离店.mp3" }
-            ], "六六台球俱乐部播报系统");
-            updateStatus("就绪（预览模式）");
+                { label: '欢迎光临', file: '欢迎.mp3' },
+                { label: '禁止烟头', file: '烟头.mp3' },
+                { label: '加时提醒', file: '关灯.mp3' },
+                { label: '离店提醒', file: '离店.mp3' }
+            ], '六六台球俱乐部播报系统');
+            updateStatus('就绪（预览模式）');
             setVolume(1.0);
         }
     </script>

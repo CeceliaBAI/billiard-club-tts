@@ -94,13 +94,10 @@ class App:
 
     def _on_loaded(self):
         """页面加载完成后的回调：注入配置，启动托盘"""
-        # 注入按钮配置
-        config_json = json.dumps({
-            "title": self.config.get("title", ""),
-            "buttons": self.config.get("buttons", []),
-        })
+        # 注入按钮配置（JSON 直接作为 JS 对象字面量，无需字符串转义）
+        buttons = self.config.get("buttons", [])
         self.window.evaluate_js(
-            f"initButtons({config_json}.buttons, {config_json}.title)"
+            f"initButtons({json.dumps(buttons)}, {json.dumps(self.config.get('title', ''))})"
         )
 
         # 注入音量
@@ -112,31 +109,39 @@ class App:
         self.player.set_status_callback(self._update_status)
         self._update_status("就绪")
 
-        # 异步注入设备列表（sounddevice.query_devices 可能较慢）
-        threading.Thread(target=self._inject_devices, daemon=True).start()
+        # 注入设备列表（同步调用，避免 Windows COM 跨线程冲突）
+        self._inject_devices()
 
         # 在 webview 创建 NSApplication 之后再启动托盘
         self._start_tray()
 
     def _update_status(self, text):
-        """更新前端状态栏（线程安全）"""
-        if hasattr(self, "window") and self.window:
-            escaped = text.replace("\\", "\\\\").replace("'", "\\'")
-            self.window.evaluate_js(f"updateStatus('{escaped}')")
-            # 根据状态通知 JS 显示/隐藏停止按钮
+        """更新前端状态栏。可被音频工作线程调用。
+
+        直接调用 evaluate_js（pywebview 内部会封送到 UI 线程）。
+        try/except 保护防止 Windows COM 冲突时崩溃。
+        """
+        if not hasattr(self, "window") or not self.window:
+            return
+        try:
+            safe_text = json.dumps(text, ensure_ascii=False)
+            self.window.evaluate_js(f"updateStatus({safe_text})")
             if "正在播放" in text:
                 self.window.evaluate_js("setPlaybackState(true)")
             elif text in ("就绪", "已停止"):
                 self.window.evaluate_js("setPlaybackState(false)")
+        except Exception as e:
+            pass  # 静默忽略跨线程调用失败，状态更新不是关键功能
 
     def _inject_devices(self):
-        """在后台线程枚举音频设备，避免阻塞 UI。"""
+        """枚举音频设备并注入前端（同步调用，安全）。"""
         try:
             devices = self.get_audio_devices()
-            if devices and hasattr(self, "window") and self.window:
-                devices_json = json.dumps(devices, ensure_ascii=False)
-                escaped = devices_json.replace("\\", "\\\\").replace("'", "\\'")
-                self.window.evaluate_js(f"populateDevices('{escaped}')")
+            if hasattr(self, "window") and self.window:
+                # 直接传递 JSON 对象，不用字符串包裹（避免转义问题）
+                self.window.evaluate_js(
+                    f"populateDevices({json.dumps(devices, ensure_ascii=False)})"
+                )
         except Exception as e:
             print(f"[设备] 注入设备列表失败: {e}")
 
