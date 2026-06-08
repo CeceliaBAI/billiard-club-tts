@@ -114,7 +114,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pywebview pygame pystray Pillow sounddevice pywin32
+          pip install pywebview pygame pystray Pillow sounddevice pywin32 pycaw
           pip install pyinstaller
           pip list
 

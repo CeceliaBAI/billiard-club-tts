@@ -39,6 +39,9 @@ elif sys.platform == 'win32':
     hiddenimports += [
         'pystray._win32',
         'win32api',
+        'pythoncom',
+        'pycaw',
+        'comtypes',
     ]
 
 a = Analysis(

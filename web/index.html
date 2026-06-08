@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>六六台球俱乐部播报系统</title>
     <style>
@@ -691,6 +692,13 @@
         function updateStatus(text) {
             document.getElementById('status-label').textContent = text;
         }
+
+        // ---- 托盘操作轮询（JS → Python，运行在 UI 线程，安全操作窗口） ----
+        setInterval(function() {
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api._poll_tray();
+            }
+        }, 500);
 
         // ---- 测试用：无 pywebview 时的 fallback ----
         if (!window.pywebview) {

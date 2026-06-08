@@ -25,24 +25,32 @@ class AudioPlayer:
         self._volume = 1.0
         self._stop_requested = False
         self._initialized = False
+        self._init_lock = threading.Lock()
 
         # 延迟初始化 pygame.mixer，让窗口先显示
-        # init() 在 _worker 线程首次消费队列项时调用
+        # init() 和 quit() 都在 _worker 线程中执行，避免 Windows COM 公寓错配
 
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
     def _ensure_init(self):
-        """延迟初始化 pygame mixer（避免阻塞窗口显示）。"""
+        """线程安全地初始化 pygame mixer。
+
+        使用双重检查锁：先无锁快读，需要时加锁初始化。
+        init() 和 quit() 始终在同一（worker）线程执行。
+        """
         if self._initialized:
             return True
-        try:
-            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=4096)
-            self._initialized = True
-            return True
-        except Exception as e:
-            print(f"[AudioPlayer] pygame.mixer 初始化失败: {e}")
-            return False
+        with self._init_lock:
+            if self._initialized:
+                return True
+            try:
+                pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=4096)
+                self._initialized = True
+                return True
+            except Exception as e:
+                print(f"[AudioPlayer] pygame.mixer 初始化失败: {e}")
+                return False
 
     def set_status_callback(self, callback):
         """设置状态变化回调，用于更新 GUI 状态栏。"""
@@ -56,7 +64,6 @@ class AudioPlayer:
         """设置播放音量。volume: 0.0（静音）到 1.0（最大）。
 
         不在此处初始化 mixer（避免阻塞启动）。
-        实际音量在 _worker 播放前通过 set_volume 应用到 mixer。
         """
         self._volume = max(0.0, min(1.0, volume))
         if self._initialized:
@@ -69,7 +76,7 @@ class AudioPlayer:
     def stop_current(self):
         """停止当前播放并清空队列，工作线程保持运行。"""
         self._stop_requested = True
-        if self._ensure_init():
+        if self._initialized:
             pygame.mixer.music.stop()
         # 清空队列中等待的任务
         while not self._queue.empty():
@@ -81,13 +88,16 @@ class AudioPlayer:
 
     def is_playing(self) -> bool:
         """是否正在播放。"""
-        if self._ensure_init():
+        if self._initialized:
             return pygame.mixer.music.get_busy()
         return False
 
     def _worker(self):
-        """工作线程：处理播放队列。延迟初始化 pygame mixer。"""
-        # 等待第一个播放任务到达时才初始化 mixer
+        """工作线程：处理播放队列。
+
+        pygame.mixer 的 init() 和 quit() 都在此线程执行，
+        避免 Windows 上跨线程 COM 公寓错配。
+        """
         self._notify_status("就绪")
 
         while True:
@@ -95,7 +105,6 @@ class AudioPlayer:
             if item is None:  # 关闭哨兵
                 break
 
-            # 延迟初始化：第一个播放任务到达时才初始化 pygame.mixer
             if not self._ensure_init():
                 self._notify_status("音频初始化失败")
                 self._queue.task_done()
@@ -133,6 +142,13 @@ class AudioPlayer:
                     self._notify_status("就绪")
                 self._queue.task_done()
 
+        # 退出前清理 mixer（与 init 在同一线程）
+        if self._initialized:
+            try:
+                pygame.mixer.quit()
+            except Exception:
+                pass
+
     def play(self, filename: str):
         """非阻塞提交播放请求。队列满时丢弃最旧的。"""
         if self._queue.qsize() >= self.MAX_QUEUE_SIZE:
@@ -144,11 +160,15 @@ class AudioPlayer:
         self._queue.put(filename)
 
     def stop(self):
-        """停止当前播放并关闭工作线程。"""
+        """停止当前播放并关闭工作线程。
+
+        发送哨兵让 worker 线程自行清理 mixer，
+        保证 init() 和 quit() 在同一线程调用。
+        """
         self._stop_requested = True
-        if self._ensure_init():
+        if self._initialized:
             pygame.mixer.music.stop()
-        # 清空队列中的等待任务
+        # 清空队列
         while not self._queue.empty():
             try:
                 self._queue.get_nowait()
@@ -157,5 +177,6 @@ class AudioPlayer:
                 break
         # 发送关闭哨兵
         self._queue.put(None)
-        if self._ensure_init():
-            pygame.mixer.quit()
+        # 等待 worker 线程退出（join 超时 2 秒）
+        if self._thread.is_alive():
+            self._thread.join(timeout=2.0)

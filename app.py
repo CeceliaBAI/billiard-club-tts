@@ -7,11 +7,44 @@ import sys
 import json
 import subprocess
 import threading
+import time
+from pathlib import Path
 
 import webview
 
-from config import load_config, save_config
+from config import load_config, save_config, get_config_dir
 from audio_player import AudioPlayer
+
+
+# ---- 单实例锁 ----
+
+def _acquire_single_instance():
+    """跨平台单实例锁（pid 文件）。返回 True 表示获得锁。"""
+    try:
+        lock_path = os.path.join(get_config_dir(), ".instance.pid")
+        os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+        if os.path.exists(lock_path):
+            try:
+                with open(lock_path, "r") as f:
+                    old_pid = int(f.read().strip())
+                os.kill(old_pid, 0)  # 检查进程是否存在
+                return False  # 已有实例在运行
+            except (OSError, ValueError):
+                pass  # 僵尸 pid 或无效内容
+        with open(lock_path, "w") as f:
+            f.write(str(os.getpid()))
+        return True
+    except Exception:
+        return True  # 失败时允许启动
+
+
+def _release_single_instance():
+    try:
+        lock_path = os.path.join(get_config_dir(), ".instance.pid")
+        if os.path.exists(lock_path):
+            os.remove(lock_path)
+    except Exception:
+        pass
 
 
 class Api:
@@ -31,7 +64,6 @@ class Api:
     def set_volume(self, volume: float):
         """前端调用：设置音量 (0.0 ~ 1.0)"""
         self.app.player.set_volume(volume)
-        # 持久化音量设置
         self.app.config["volume"] = volume
         save_config(self.app.config)
 
@@ -40,16 +72,11 @@ class Api:
         return self.app.player.get_volume()
 
     def get_devices(self):
-        """前端调用：获取音频输出设备列表，返回 JSON 字符串"""
-        devices = self.app.get_audio_devices()
-        return json.dumps(devices, ensure_ascii=False)
+        """前端调用：获取音频输出设备列表，返回 Python 列表（pywebview 自动序列化）"""
+        return self.app.get_audio_devices()
 
     def set_device(self, device_id: str):
-        """前端调用：切换音频输出设备
-
-        macOS: device_id 为设备 UID
-        Windows: device_id 为设备名称
-        """
+        """前端调用：切换音频输出设备"""
         success = self.app.set_audio_device(device_id)
         if success:
             self.app.config["output_device"] = device_id
@@ -57,35 +84,38 @@ class Api:
         return success
 
     def get_config(self):
-        """前端调用：获取完整配置"""
-        return json.dumps({
+        """前端调用：获取完整配置，返回 Python dict（pywebview 自动序列化）"""
+        return {
             "title": self.app.config.get("title", ""),
             "buttons": self.app.config.get("buttons", []),
             "volume": self.app.player.get_volume(),
             "always_on_top": self.app.config.get("always_on_top", False),
-        })
+        }
+
+    def _poll_tray(self):
+        """JS 定期轮询托盘操作（运行在 UI 线程，安全操作窗口）。"""
+        self.app._process_tray_action()
 
 
 class App:
     def __init__(self, config_path=None):
         self.config = load_config(config_path)
 
-        # 初始化音频播放引擎（主线程初始化 pygame.mixer）
         audio_dir = self.config.get("audio_dir", "audio")
         self.player = AudioPlayer(audio_dir=audio_dir)
 
-        # 恢复保存的音量
         saved_volume = self.config.get("volume", 1.0)
         self.player.set_volume(saved_volume)
 
-        # 创建 API 桥接
         self.api = Api(self)
 
-        # 托盘图标引用
         self._tray_icon = None
+        self._tray_action = None
+        self._tray_action_lock = threading.Lock()
+        self._poll_timer = None
 
     def _get_html_path(self):
-        """获取 index.html 的绝对路径"""
+        """获取 index.html 的绝对路径。打包后从 sys._MEIPASS 读取。"""
         if getattr(sys, "frozen", False):
             base = sys._MEIPASS
         else:
@@ -93,34 +123,50 @@ class App:
         return os.path.join(base, "web", "index.html")
 
     def _on_loaded(self):
-        """页面加载完成后的回调：注入配置，启动托盘"""
-        # 注入按钮配置（JSON 直接作为 JS 对象字面量，无需字符串转义）
-        buttons = self.config.get("buttons", [])
-        self.window.evaluate_js(
-            f"initButtons({json.dumps(buttons)}, {json.dumps(self.config.get('title', ''))})"
-        )
+        """页面加载完成后的回调：注入配置，启动托盘。
 
-        # 注入音量
-        self.window.evaluate_js(
-            f"setVolume({self.player.get_volume()})"
-        )
+        每个初始化步骤独立 try/except，单步失败不影响其余。
+        """
+        # Step 1: 注入按钮配置（关键——失败则应用无功能）
+        try:
+            buttons = self.config.get("buttons", [])
+            self.window.evaluate_js(
+                f"initButtons({json.dumps(buttons)}, {json.dumps(self.config.get('title', ''))})"
+            )
+        except Exception as e:
+            print(f"[启动] 注入按钮失败: {e}")
 
-        # 设置状态回调
+        # Step 2: 注入音量
+        try:
+            self.window.evaluate_js(
+                f"setVolume({self.player.get_volume()})"
+            )
+        except Exception as e:
+            print(f"[启动] 注入音量失败: {e}")
+
+        # Step 3: 设置状态回调 + 初始状态
         self.player.set_status_callback(self._update_status)
-        self._update_status("就绪")
+        try:
+            self._update_status("就绪")
+        except Exception:
+            pass
 
-        # 注入设备列表（同步调用，避免 Windows COM 跨线程冲突）
-        self._inject_devices()
-
-        # 在 webview 创建 NSApplication 之后再启动托盘
+        # Step 4: 启动托盘（在设备枚举之前，用户可立即使用托盘）
         self._start_tray()
 
-    def _update_status(self, text):
-        """更新前端状态栏。可被音频工作线程调用。
+        # Step 5: 启动托盘操作轮询（JS setInterval → _poll_tray）
+        try:
+            self.window.evaluate_js(
+                "setInterval(function(){if(window.pywebview&&window.pywebview.api)window.pywebview.api._poll_tray()},500)"
+            )
+        except Exception as e:
+            print(f"[启动] 托盘轮询注入失败: {e}")
 
-        直接调用 evaluate_js（pywebview 内部会封送到 UI 线程）。
-        try/except 保护防止 Windows COM 冲突时崩溃。
-        """
+        # Step 6: 异步枚举音频设备（不阻塞 UI）
+        self._inject_devices_async()
+
+    def _update_status(self, text):
+        """更新前端状态栏。可被音频工作线程调用。"""
         if not hasattr(self, "window") or not self.window:
             return
         try:
@@ -131,41 +177,52 @@ class App:
             elif text in ("就绪", "已停止"):
                 self.window.evaluate_js("setPlaybackState(false)")
         except Exception as e:
-            pass  # 静默忽略跨线程调用失败，状态更新不是关键功能
+            # 跨线程 evaluate_js 在 Windows COM 繁忙时可能失败
+            pass
 
-    def _inject_devices(self):
-        """枚举音频设备并注入前端。
+    # ---- 音频设备枚举（异步 + COM 初始化） ----
 
-        在后台线程调用 sounddevice（防止 PortAudio 卡死阻塞 UI），
-        但 evaluate_js 最终回到本线程执行（避免 Windows COM 跨线程冲突）。
+    def _inject_devices_async(self):
+        """在后台线程枚举音频设备，完成后回调注入前端。
+
+        Windows 上需要 CoInitializeEx 才能正常使用 PortAudio/WASAPI。
         """
-        devices = []
-        try:
-            # 在后台线程查询设备，最多等 3 秒
-            result = []
-            def _query():
+
+        def _query_and_inject():
+            devices = []
+            try:
+                # Windows COM 初始化
+                if sys.platform == "win32":
+                    try:
+                        import pythoncom
+                        pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
+                    except ImportError:
+                        pass
+
                 try:
-                    result.append(self.get_audio_devices())
+                    devices = self.get_audio_devices()
                 except Exception as e:
                     print(f"[设备] 枚举失败: {e}")
 
-            t = threading.Thread(target=_query, daemon=True)
-            t.start()
-            t.join(timeout=3.0)
+            finally:
+                # 回到主线程注入 JS，或直接在此线程注入（evaluate_js 内部封送）
+                if devices and hasattr(self, "window") and self.window:
+                    try:
+                        self.window.evaluate_js(
+                            f"populateDevices({json.dumps(devices, ensure_ascii=False)})"
+                        )
+                    except Exception as e:
+                        print(f"[设备] JS 注入失败: {e}")
 
-            if t.is_alive():
-                print("[设备] 枚举超时（3s），跳过")
-                return
+                if sys.platform == "win32":
+                    try:
+                        import pythoncom
+                        pythoncom.CoUninitialize()
+                    except (ImportError, Exception):
+                        pass
 
-            if result:
-                devices = result[0]
-        except Exception as e:
-            print(f"[设备] 注入设备列表失败: {e}")
-
-        if devices and hasattr(self, "window") and self.window:
-            self.window.evaluate_js(
-                f"populateDevices({json.dumps(devices, ensure_ascii=False)})"
-            )
+        t = threading.Thread(target=_query_and_inject, daemon=True)
+        t.start()
 
     # ---- 音频设备枚举 ----
 
@@ -178,14 +235,15 @@ class App:
         try:
             import sounddevice as sd
             all_devices = sd.query_devices()
-            default_output = sd.default.device[1]  # 默认输出设备索引
+            default_output = sd.default.device[1] if sd.default.device else None
 
             for idx, dev in enumerate(all_devices):
                 if dev.get("max_output_channels", 0) > 0:
+                    dev_name = dev.get("name", f"设备 {idx}")
                     devices.append({
-                        "name": dev.get("name", f"设备 {idx}"),
-                        "id": dev.get("name", f"设备 {idx}"),  # 使用设备名称（SwitchAudioSource 需要名称）
-                        "is_default": idx == default_output,
+                        "name": dev_name,
+                        "id": dev_name,
+                        "is_default": (idx == default_output),
                     })
         except Exception as e:
             print(f"[设备] 枚举音频设备失败: {e}")
@@ -194,10 +252,7 @@ class App:
     # ---- 音频设备切换 ----
 
     def set_audio_device(self, device_id: str) -> bool:
-        """切换系统默认音频输出设备（平台特定实现）。
-
-        返回 True 表示切换成功。
-        """
+        """切换系统默认音频输出设备（平台特定实现）。"""
         if sys.platform == "darwin":
             return self._set_device_macos(device_id)
         elif sys.platform == "win32":
@@ -208,7 +263,6 @@ class App:
 
     def _find_switch_audio_source(self):
         """查找 SwitchAudioSource 二进制文件路径。"""
-        # 尝试已知的 Homebrew 安装路径
         candidates = [
             "/opt/homebrew/bin/SwitchAudioSource",
             "/usr/local/bin/SwitchAudioSource",
@@ -216,7 +270,6 @@ class App:
         for path in candidates:
             if os.path.exists(path):
                 return path
-        # 尝试在 PATH 中查找
         result = subprocess.run(
             ["which", "SwitchAudioSource"],
             capture_output=True, text=True, timeout=3,
@@ -225,16 +278,15 @@ class App:
             return result.stdout.strip()
         return None
 
-    def _set_device_macos(self, device_uid: str) -> bool:
+    def _set_device_macos(self, device_name: str) -> bool:
         """macOS: 使用 SwitchAudioSource 切换设备。"""
         try:
             sas_path = self._find_switch_audio_source()
             if not sas_path:
                 self._update_status("切换失败：请安装 brew install switchaudio-osx")
                 return False
-
             subprocess.run(
-                [sas_path, "-s", device_uid],
+                [sas_path, "-s", device_name],
                 capture_output=True, timeout=5,
             )
             return True
@@ -244,40 +296,19 @@ class App:
             return False
 
     def _set_device_windows(self, device_name: str) -> bool:
-        """Windows: 切换默认音频输出设备。"""
+        """Windows: 切换默认音频输出设备。先尝试 pycaw，失败则提示用户手动切换。"""
         try:
-            # 方案 1：使用 pycaw（如果已安装）
-            try:
-                from pycaw.pycaw import AudioUtilities
-                # pycaw v20251023+ 支持切换默认设备
-                devices = AudioUtilities.GetAllDevices()
-                for dev in devices:
-                    if device_name in dev.FriendlyName or device_name in str(dev.id):
-                        AudioUtilities.SetDefaultAudioPlaybackDevice(dev)
-                        return True
-                self._update_status(f"未找到设备: {device_name}")
-                return False
-            except ImportError:
-                pass
-            except Exception as e:
-                print(f"[设备] pycaw 切换失败: {e}")
-
-            # 方案 2：使用 PowerShell（Windows 10+）
-            ps_script = f'''
-            Add-Type @"
-            using System;
-            using System.Runtime.InteropServices;
-            public class AudioDevice {{
-                [DllImport("winmm.dll", SetLastError=true)]
-                public static extern int waveOutMessage(IntPtr uDeviceID, uint uMsg, ref int dw1, ref int dw2);
-            }}
-"@
-            '''
-            subprocess.run(
-                ["powershell", "-NoProfile", "-Command", ps_script],
-                capture_output=True, timeout=5,
-            )
-            self._update_status("Windows 设备切换请使用系统声音设置")
+            from pycaw.pycaw import AudioUtilities
+            devices = AudioUtilities.GetAllDevices()
+            for dev in devices:
+                # 精确匹配设备名称
+                if device_name == dev.FriendlyName or device_name == str(dev.id):
+                    AudioUtilities.SetDefaultAudioPlaybackDevice(dev)
+                    return True
+            self._update_status(f"未找到设备: {device_name}")
+            return False
+        except ImportError:
+            self._update_status("请安装 pycaw 以支持切换音频设备: pip install pycaw")
             return False
         except Exception as e:
             print(f"[设备] Windows 切换设备失败: {e}")
@@ -288,7 +319,6 @@ class App:
 
     def _on_closing(self):
         """窗口关闭事件：有托盘时隐藏到托盘，否则退出。"""
-        # 保存窗口尺寸
         try:
             if hasattr(self, "window") and self.window:
                 self.config["window_width"] = self.window.width
@@ -298,7 +328,6 @@ class App:
             pass
 
         if self._tray_icon:
-            # 有托盘：隐藏窗口而非退出
             try:
                 self.window.hide()
             except Exception:
@@ -306,30 +335,49 @@ class App:
             return False  # 阻止默认关闭行为
         return True  # 无托盘：允许关闭
 
-    def show_window(self):
-        """显示并聚焦窗口（托盘菜单回调）。"""
+    # ---- 托盘操作（线程安全） ----
+
+    def _request_tray_action(self, action: str):
+        """由托盘菜单回调（在 pystray daemon 线程）调用，设置待处理操作。
+        实际窗口操作由 JS 轮询 _poll_tray → _process_tray_action 在 UI 线程执行。
+        """
+        with self._tray_action_lock:
+            self._tray_action = action
+
+    def _process_tray_action(self):
+        """由 JS 轮询 _poll_tray() 调用（运行在 UI 线程），安全操作窗口。"""
+        with self._tray_action_lock:
+            action = self._tray_action
+            self._tray_action = None
+
+        if action == "show":
+            self._do_show_window()
+        elif action == "hide":
+            self._do_hide_window()
+        elif action == "quit":
+            self._do_quit_app()
+
+    def _do_show_window(self):
         if hasattr(self, "window") and self.window:
             try:
                 self.window.show()
             except Exception:
                 pass
 
-    def hide_window(self):
-        """隐藏窗口到托盘（托盘菜单回调）。"""
+    def _do_hide_window(self):
         if hasattr(self, "window") and self.window:
             try:
                 self.window.hide()
             except Exception:
                 pass
 
-    def quit_app(self):
-        """完全退出应用：停止音频、销毁窗口、移除托盘。"""
+    def _do_quit_app(self):
+        """完全退出应用：停止音频、销毁窗口、清理托盘。"""
         self.player.stop()
-        # 移除托盘图标
         if self._tray_icon:
             try:
                 if sys.platform == "darwin":
-                    # NSStatusBar 图标：从状态栏移除
+                    from AppKit import NSStatusBar
                     NSStatusBar.systemStatusBar().removeStatusItem_(self._tray_icon)
                 else:
                     self._tray_icon.stop()
@@ -340,27 +388,20 @@ class App:
                 self.window.destroy()
             except Exception:
                 pass
+        _release_single_instance()
         os._exit(0)
 
     # ---- 系统托盘 ----
 
     def _start_tray(self):
-        """启动系统托盘图标。
-
-        macOS: 使用 pyobjc 在主线程直接创建 NSStatusBar 图标。
-        Windows: 使用 pystray 在 daemon 线程中运行。
-        """
+        """启动系统托盘图标。"""
         if sys.platform == "darwin":
             self._start_tray_macos()
         else:
             self._start_tray_other()
 
     def _start_tray_macos(self):
-        """macOS: 使用 GCD 将 NSStatusBar 创建调度到主线程。
-
-        _on_loaded 运行在 WebKit 回调线程，而 Cocoa UI 必须在主线程操作。
-        使用 dispatch_async 将实际创建逻辑派发到主队列。
-        """
+        """macOS: 使用 GCD 将 NSStatusBar 创建调度到主线程。"""
         app_ref = self
 
         def _setup():
@@ -372,15 +413,15 @@ class App:
                 class _TrayTarget(NSObject):
                     @objc.selector
                     def showWindow_(self, sender):
-                        app_ref.show_window()
+                        app_ref._do_show_window()
 
                     @objc.selector
                     def hideWindow_(self, sender):
-                        app_ref.hide_window()
+                        app_ref._do_hide_window()
 
                     @objc.selector
                     def quitApp_(self, sender):
-                        app_ref.quit_app()
+                        app_ref._do_quit_app()
 
                 app_ref._tray_target = _TrayTarget.alloc().init()
 
@@ -422,11 +463,9 @@ class App:
             from libdispatch import dispatch_get_main_queue, dispatch_async
             dispatch_async(dispatch_get_main_queue(), _setup)
         except ImportError:
-            # 回退：使用 performSelectorOnMainThread
             try:
                 from Foundation import NSObject
                 helper = NSObject.alloc().init()
-                # 将 _setup 包装为可调用的 selector
                 import objc
                 objc.registerMetaDataForSelector(
                     b"NSObject", b"performSelectorOnMainThread:withObject:waitUntilDone:",
@@ -440,7 +479,11 @@ class App:
                 self._tray_icon = None
 
     def _start_tray_other(self):
-        """Windows/Linux: 使用 pystray 在 daemon 线程中运行。"""
+        """Windows/Linux: 使用 pystray 在 daemon 线程中运行。
+
+        托盘菜单回调通过 _request_tray_action 设置标志，
+        JS 轮询 _poll_tray 在 UI 线程安全执行窗口操作。
+        """
         try:
             import pystray
             from PIL import Image, ImageDraw
@@ -453,28 +496,29 @@ class App:
 
             if os.path.exists(icon_path):
                 img = Image.open(icon_path)
-                img = img.resize((64, 64), Image.LANCZOS)
+                img = img.resize((32, 32), Image.LANCZOS)
             else:
-                img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+                # Windows 托盘图标 32x32 即可（较小的回退图标更清晰）
+                img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
                 draw = ImageDraw.Draw(img)
-                draw.ellipse((8, 8, 56, 56), fill="#667eea")
+                draw.ellipse((4, 4, 28, 28), fill="#667eea")
 
             app_title = self.config.get("title", "播报系统")
 
             menu = pystray.Menu(
                 pystray.MenuItem(
                     "显示窗口",
-                    lambda: self.show_window(),
+                    lambda: self._request_tray_action("show"),
                     default=True,
                 ),
                 pystray.MenuItem(
                     "隐藏窗口",
-                    lambda: self.hide_window(),
+                    lambda: self._request_tray_action("hide"),
                 ),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(
                     "退出",
-                    lambda: self.quit_app(),
+                    lambda: self._request_tray_action("quit"),
                 ),
             )
 
@@ -502,6 +546,11 @@ class App:
 
     def run(self):
         """启动应用"""
+        # 单实例检查
+        if not _acquire_single_instance():
+            print("应用已在运行中")
+            sys.exit(0)
+
         html_path = self._get_html_path()
 
         if not os.path.exists(html_path):
@@ -514,10 +563,12 @@ class App:
         win_width = self.config.get("window_width", 550)
         win_height = self.config.get("window_height", 500)
 
-        # 创建窗口
+        # 使用 Path.as_uri() 生成正确的 file:/// URL（Windows 兼容）
+        html_url = Path(html_path).as_uri()
+
         self.window = webview.create_window(
             title,
-            url=f"file://{html_path}",
+            url=html_url,
             js_api=self.api,
             width=win_width,
             height=win_height,
@@ -526,11 +577,9 @@ class App:
             text_select=False,
         )
 
-        # 页面加载完成后注入配置
         self.window.events.loaded += self._on_loaded
         self.window.events.closing += self._on_closing
 
-        # 应用置顶设置
         if self.config.get("always_on_top", False):
             try:
                 self.window.on_top = True
@@ -546,3 +595,4 @@ class App:
                 self._tray_icon.stop()
             except Exception:
                 pass
+        _release_single_instance()

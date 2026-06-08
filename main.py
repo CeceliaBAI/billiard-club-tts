@@ -8,9 +8,11 @@ import os
 # 必须在导入 pygame 前设置：禁止 SDL2 使用视频子系统，
 # 否则会与 pywebview 的 WebView 冲突导致崩溃。
 os.environ["SDL_VIDEODRIVER"] = "dummy"
-# macOS: 显式指定 CoreAudio 驱动；Windows: 让 SDL 自动检测 (directsound/wasapi)
+# 显式指定音频驱动，避免 SDL 自动检测到不稳定的驱动
 if sys.platform == "darwin":
     os.environ["SDL_AUDIODRIVER"] = "coreaudio"
+elif sys.platform == "win32":
+    os.environ["SDL_AUDIODRIVER"] = "directsound"
 
 
 def main():
