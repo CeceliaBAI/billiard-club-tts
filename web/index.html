@@ -504,9 +504,32 @@
 
     <script>
         // 按钮配置（从 Python 注入）
-        let BUTTONS = [];
-        let debounceMap = {};
-        let currentVolume = 1.0;
+        var BUTTONS = [];
+        var debounceMap = {};
+        var currentVolume = 1.0;
+
+        // ---- Array forEach polyfill (IE8+) ----
+        if (!Array.prototype.forEach) {
+            Array.prototype.forEach = function(callback, thisArg) {
+                for (var i = 0; i < this.length; i++) {
+                    callback.call(thisArg, this[i], i, this);
+                }
+            };
+        }
+
+        // ---- NodeList forEach polyfill (IE11) ----
+        if (window.NodeList && !NodeList.prototype.forEach) {
+            NodeList.prototype.forEach = Array.prototype.forEach;
+        }
+
+        // ---- Element remove polyfill (IE11) ----
+        if (!Element.prototype.remove) {
+            Element.prototype.remove = function() {
+                if (this.parentNode) {
+                    this.parentNode.removeChild(this);
+                }
+            };
+        }
 
         // ---- 初始化按钮 ----
         function initButtons(buttons, title) {
@@ -517,17 +540,19 @@
                 document.title = title;
             }
 
-            const grid = document.getElementById('button-grid');
+            var grid = document.getElementById('button-grid');
             grid.innerHTML = '';
 
-            BUTTONS.forEach((btn, index) => {
-                const el = document.createElement('button');
+            BUTTONS.forEach(function(btn, index) {
+                var el = document.createElement('button');
                 el.className = 'glass-btn';
                 el.textContent = btn.label;
-                el.dataset.file = btn.file;
-                el.dataset.index = index;
+                el.setAttribute('data-file', btn.file);
+                el.setAttribute('data-index', index);
 
-                el.addEventListener('click', (e) => handleClick(e, el, btn));
+                el.addEventListener('click', (function(el, btn) {
+                    return function(e) { handleClick(e, el, btn); };
+                })(el, btn));
                 grid.appendChild(el);
             });
         }
@@ -554,29 +579,32 @@
             }
 
             // 恢复按钮（1秒防抖）
-            setTimeout(() => {
-                el.disabled = false;
-                debounceMap[btn.file] = false;
-                el.classList.remove('playing');
+            var self = el;
+            var file = btn.file;
+            setTimeout(function() {
+                self.disabled = false;
+                debounceMap[file] = false;
+                self.classList.remove('playing');
             }, 1000);
         }
 
         // ---- 涟漪效果 ----
         function createRipple(e, el) {
-            const ripple = document.createElement('span');
+            var ripple = document.createElement('span');
             ripple.className = 'ripple';
 
-            const rect = el.getBoundingClientRect();
-            const size = Math.max(rect.width, rect.height);
-            const x = e.clientX - rect.left - size / 2;
-            const y = e.clientY - rect.top - size / 2;
+            var rect = el.getBoundingClientRect();
+            var size = Math.max(rect.width, rect.height);
+            var x = e.clientX - rect.left - size / 2;
+            var y = e.clientY - rect.top - size / 2;
 
-            ripple.style.width = ripple.style.height = size + 'px';
+            ripple.style.width = size + 'px';
+            ripple.style.height = size + 'px';
             ripple.style.left = x + 'px';
             ripple.style.top = y + 'px';
 
             el.appendChild(ripple);
-            setTimeout(() => ripple.remove(), 600);
+            setTimeout(function() { ripple.remove(); }, 600);
         }
 
         // ---- 停止播放 ----
@@ -585,16 +613,17 @@
                 window.pywebview.api.stop_audio();
             }
             // 重置所有按钮状态
-            document.querySelectorAll('.glass-btn.playing').forEach(btn => {
-                btn.classList.remove('playing');
-            });
+            var playingBtns = document.querySelectorAll('.glass-btn.playing');
+            for (var i = 0; i < playingBtns.length; i++) {
+                playingBtns[i].classList.remove('playing');
+            }
             document.getElementById('stop-container').style.display = 'none';
             document.getElementById('status-dot').classList.remove('playing');
         }
 
         function setPlaybackState(playing) {
-            const container = document.getElementById('stop-container');
-            const dot = document.getElementById('status-dot');
+            var container = document.getElementById('stop-container');
+            var dot = document.getElementById('status-dot');
 
             if (playing) {
                 container.style.display = 'flex';
@@ -603,9 +632,10 @@
                 container.style.display = 'none';
                 dot.classList.remove('playing');
                 // 清除所有按钮的播放状态
-                document.querySelectorAll('.glass-btn.playing').forEach(btn => {
-                    btn.classList.remove('playing');
-                });
+                var playingBtns = document.querySelectorAll('.glass-btn.playing');
+                for (var i = 0; i < playingBtns.length; i++) {
+                    playingBtns[i].classList.remove('playing');
+                }
             }
         }
 
@@ -613,7 +643,7 @@
         function setVolume(vol) {
             // Python 启动时调用，vol 为 0.0 ~ 1.0
             currentVolume = vol;
-            const pct = Math.round(vol * 100);
+            var pct = Math.round(vol * 100);
             document.getElementById('volume-slider').value = pct;
             document.getElementById('volume-display').textContent = pct + '%';
         }

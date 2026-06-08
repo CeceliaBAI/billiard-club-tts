@@ -134,16 +134,38 @@ class App:
             pass  # 静默忽略跨线程调用失败，状态更新不是关键功能
 
     def _inject_devices(self):
-        """枚举音频设备并注入前端（同步调用，安全）。"""
+        """枚举音频设备并注入前端。
+
+        在后台线程调用 sounddevice（防止 PortAudio 卡死阻塞 UI），
+        但 evaluate_js 最终回到本线程执行（避免 Windows COM 跨线程冲突）。
+        """
+        devices = []
         try:
-            devices = self.get_audio_devices()
-            if hasattr(self, "window") and self.window:
-                # 直接传递 JSON 对象，不用字符串包裹（避免转义问题）
-                self.window.evaluate_js(
-                    f"populateDevices({json.dumps(devices, ensure_ascii=False)})"
-                )
+            # 在后台线程查询设备，最多等 3 秒
+            result = []
+            def _query():
+                try:
+                    result.append(self.get_audio_devices())
+                except Exception as e:
+                    print(f"[设备] 枚举失败: {e}")
+
+            t = threading.Thread(target=_query, daemon=True)
+            t.start()
+            t.join(timeout=3.0)
+
+            if t.is_alive():
+                print("[设备] 枚举超时（3s），跳过")
+                return
+
+            if result:
+                devices = result[0]
         except Exception as e:
             print(f"[设备] 注入设备列表失败: {e}")
+
+        if devices and hasattr(self, "window") and self.window:
+            self.window.evaluate_js(
+                f"populateDevices({json.dumps(devices, ensure_ascii=False)})"
+            )
 
     # ---- 音频设备枚举 ----
 
