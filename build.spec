@@ -17,6 +17,7 @@ else:
 hiddenimports = [
     'pygame',
     'pygame.mixer',
+    'pygame.mixer_music',
     'webview',
     'webview.platforms.cocoa',
     'webview.platforms.winforms',
@@ -39,6 +40,8 @@ elif sys.platform == 'win32':
     hiddenimports += [
         'pystray._win32',
         'win32api',
+        'win32gui',
+        'win32con',
         'pythoncom',
         'pycaw',
         'comtypes',

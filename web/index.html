@@ -682,6 +682,18 @@
             });
         }
 
+        function selectDevice(deviceId) {
+            // Python 启动时调用：恢复用户上次保存的设备选择
+            if (!deviceId) return;
+            var select = document.getElementById('device-select');
+            for (var i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === deviceId) {
+                    select.selectedIndex = i;
+                    return;
+                }
+            }
+        }
+
         function onDeviceChange(deviceId) {
             if (window.pywebview && window.pywebview.api) {
                 window.pywebview.api.set_device(deviceId);

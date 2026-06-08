@@ -93,8 +93,16 @@ class Api:
         }
 
     def _poll_tray(self):
-        """JS 定期轮询托盘操作（运行在 UI 线程，安全操作窗口）。"""
+        """JS 定期轮询（运行在 UI 线程），安全操作窗口。
+
+        统一处理三类待办：
+        1. 托盘菜单操作（show/hide/quit）
+        2. 音频状态更新（播放中/就绪/错误）
+        3. 音频设备列表注入（启动时一次性）
+        """
         self.app._process_tray_action()
+        self.app._process_pending_status()
+        self.app._process_pending_devices()
 
 
 class App:
@@ -112,7 +120,13 @@ class App:
         self._tray_icon = None
         self._tray_action = None
         self._tray_action_lock = threading.Lock()
-        self._poll_timer = None
+
+        # 跨线程安全的状态/设备注入缓冲区
+        # 工作线程写入 → JS 轮询在 UI 线程取走并调用 evaluate_js
+        self._status_message = None
+        self._status_lock = threading.Lock()
+        self._devices_data = None
+        self._devices_lock = threading.Lock()
 
     def _get_html_path(self):
         """获取 index.html 的绝对路径。打包后从 sys._MEIPASS 读取。"""
@@ -154,20 +168,31 @@ class App:
         # Step 4: 启动托盘（在设备枚举之前，用户可立即使用托盘）
         self._start_tray()
 
-        # Step 5: 启动托盘操作轮询（JS setInterval → _poll_tray）
-        try:
-            self.window.evaluate_js(
-                "setInterval(function(){if(window.pywebview&&window.pywebview.api)window.pywebview.api._poll_tray()},500)"
-            )
-        except Exception as e:
-            print(f"[启动] 托盘轮询注入失败: {e}")
-
-        # Step 6: 异步枚举音频设备（不阻塞 UI）
+        # Step 5: 异步枚举音频设备（不阻塞 UI）
+        # 注：托盘轮询由 web/index.html 中的 setInterval 负责，
+        # 无需 Python 端额外注入。
         self._inject_devices_async()
 
     def _update_status(self, text):
-        """更新前端状态栏。可被音频工作线程调用。"""
+        """记录状态文本，由 JS 轮询在 UI 线程安全更新前端。
+
+        可被音频工作线程调用——不在此处调用 evaluate_js，
+        而是将消息存入锁保护缓冲区，等待 JS 侧 _poll_tray()
+        在 UI 线程取走并执行 DOM 更新。
+        """
         if not hasattr(self, "window") or not self.window:
+            return
+        with self._status_lock:
+            self._status_message = text
+
+    # ---- 跨线程安全：JS 轮询在 UI 线程执行 DOM 更新 ----
+
+    def _process_pending_status(self):
+        """由 JS 轮询调用（运行在 UI 线程），获取最新状态文本并更新前端。"""
+        with self._status_lock:
+            text = self._status_message
+            self._status_message = None
+        if text is None:
             return
         try:
             safe_text = json.dumps(text, ensure_ascii=False)
@@ -177,14 +202,39 @@ class App:
             elif text in ("就绪", "已停止"):
                 self.window.evaluate_js("setPlaybackState(false)")
         except Exception as e:
-            # 跨线程 evaluate_js 在 Windows COM 繁忙时可能失败
-            pass
+            print(f"[状态] 注入失败: {e}")
+
+    def _process_pending_devices(self):
+        """由 JS 轮询调用（运行在 UI 线程），注入设备列表并恢复已保存设备。
+
+        仅在注入成功后清空缓冲区，失败则在下个轮询重试。
+        """
+        with self._devices_lock:
+            data = self._devices_data
+        if data is None:
+            return
+        devices_json, saved_device = data
+        try:
+            self.window.evaluate_js(
+                f"populateDevices({devices_json})"
+            )
+            if saved_device:
+                self.window.evaluate_js(
+                    f"selectDevice({json.dumps(saved_device, ensure_ascii=False)})"
+                )
+            # 注入成功，清空缓冲区
+            with self._devices_lock:
+                self._devices_data = None
+        except Exception as e:
+            print(f"[设备] JS 注入失败，下个轮询重试: {e}")
 
     # ---- 音频设备枚举（异步 + COM 初始化） ----
 
     def _inject_devices_async(self):
-        """在后台线程枚举音频设备，完成后回调注入前端。
+        """在后台线程枚举音频设备，结果存入锁缓冲区。
 
+        由 JS 轮询 _poll_tray → _process_pending_devices 在 UI 线程
+        安全注入前端（Windows 上 evaluate_js 必须由 UI 线程调用）。
         Windows 上需要 CoInitializeEx 才能正常使用 PortAudio/WASAPI。
         """
 
@@ -205,14 +255,13 @@ class App:
                     print(f"[设备] 枚举失败: {e}")
 
             finally:
-                # 回到主线程注入 JS，或直接在此线程注入（evaluate_js 内部封送）
+                # 存入锁保护缓冲区，由 JS 轮询在 UI 线程注入前端
                 if devices and hasattr(self, "window") and self.window:
-                    try:
-                        self.window.evaluate_js(
-                            f"populateDevices({json.dumps(devices, ensure_ascii=False)})"
+                    with self._devices_lock:
+                        self._devices_data = (
+                            json.dumps(devices, ensure_ascii=False),
+                            self.config.get("output_device", ""),
                         )
-                    except Exception as e:
-                        print(f"[设备] JS 注入失败: {e}")
 
                 if sys.platform == "win32":
                     try:
@@ -529,8 +578,15 @@ class App:
                 menu,
             )
 
+            def _run_tray_safe():
+                try:
+                    self._tray_icon.run()
+                except Exception as e:
+                    print(f"[托盘] pystray 运行异常: {e}")
+                    self._tray_icon = None  # 标记失败，允许窗口正常关闭
+
             tray_thread = threading.Thread(
-                target=self._tray_icon.run,
+                target=_run_tray_safe,
                 daemon=True,
             )
             tray_thread.start()

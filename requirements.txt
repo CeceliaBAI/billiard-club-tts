@@ -5,6 +5,7 @@ Pillow>=10.0.0
 sounddevice>=0.4.0
 pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'
 pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'
+pyobjc-framework-libdispatch>=10.0; sys_platform == 'darwin'
 pywin32>=306; sys_platform == 'win32'
 pycaw>=20240210; sys_platform == 'win32'
 comtypes>=1.4; sys_platform == 'win32'

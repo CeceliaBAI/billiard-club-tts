@@ -29,15 +29,25 @@ def get_config_dir():
     """获取配置文件可写目录。
 
     - Windows 打包后：%APPDATA%/BilliardClubTTS（Program Files 不可写）
-    - macOS/Linux 打包后：可执行文件旁边
+    - macOS 打包后：~/Library/Application Support/BilliardClubTTS
+      （.app bundle 内部只读，SIP 拒绝写入）
+    - Linux 打包后：~/.config/BilliardClubTTS
     - 开发模式：项目根目录
     """
     if getattr(sys, "frozen", False):
         if sys.platform == "win32":
             appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
             config_dir = os.path.join(appdata, "BilliardClubTTS")
+        elif sys.platform == "darwin":
+            config_dir = os.path.join(
+                os.path.expanduser("~"),
+                "Library", "Application Support", "BilliardClubTTS",
+            )
         else:
-            config_dir = os.path.dirname(sys.executable)
+            # Linux: 使用 XDG 约定
+            config_dir = os.path.join(
+                os.path.expanduser("~"), ".config", "BilliardClubTTS"
+            )
     else:
         config_dir = os.path.dirname(os.path.abspath(__file__))
     return config_dir
