@@ -19,6 +19,7 @@ hiddenimports = [
     'pygame.mixer',
     'pygame.mixer_music',
     'webview',
+    'webview.http',
     'webview.platforms.cocoa',
     'webview.platforms.winforms',
     'pystray',
@@ -45,6 +46,8 @@ elif sys.platform == 'win32':
         'pythoncom',
         'pycaw',
         'comtypes',
+        'webview.platforms.edgechromium',
+        'webview.http',
     ]
 
 a = Analysis(

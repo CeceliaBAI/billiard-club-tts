@@ -8,7 +8,6 @@ import json
 import subprocess
 import threading
 import time
-from pathlib import Path
 
 import webview
 
@@ -619,12 +618,11 @@ class App:
         win_width = self.config.get("window_width", 550)
         win_height = self.config.get("window_height", 500)
 
-        # 使用 Path.as_uri() 生成正确的 file:/// URL（Windows 兼容）
-        html_url = Path(html_path).as_uri()
-
+        # 传递原始文件路径，pywebview 配合 http_server=True
+        # 自动通过本地 HTTP 服务页面，避免 WebView2 对 file:// URL 的限制
         self.window = webview.create_window(
             title,
-            url=html_url,
+            url=html_path,
             js_api=self.api,
             width=win_width,
             height=win_height,
@@ -642,7 +640,7 @@ class App:
             except Exception:
                 pass
 
-        webview.start(debug=False)
+        webview.start(debug=False, http_server=True)
 
         # 退出时清理
         self.player.stop()

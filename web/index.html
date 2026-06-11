@@ -706,23 +706,35 @@
         }
 
         // ---- 托盘操作轮询（JS → Python，运行在 UI 线程，安全操作窗口） ----
-        setInterval(function() {
-            if (window.pywebview && window.pywebview.api) {
-                window.pywebview.api._poll_tray();
-            }
-        }, 500);
+        window.addEventListener('pywebviewready', function() {
+            // pywebview JS bridge 已就绪，启动托盘轮询
+            // （setInterval 也需要 bridge，所以在 pywebviewready 里启动）
+            setInterval(function() {
+                if (window.pywebview && window.pywebview.api) {
+                    window.pywebview.api._poll_tray();
+                }
+            }, 500);
+        });
 
         // ---- 测试用：无 pywebview 时的 fallback ----
-        if (!window.pywebview) {
-            initButtons([
-                { label: '欢迎光临', file: '欢迎.mp3' },
-                { label: '禁止烟头', file: '烟头.mp3' },
-                { label: '加时提醒', file: '关灯.mp3' },
-                { label: '离店提醒', file: '离店.mp3' }
-            ], '六六台球俱乐部播报系统');
-            updateStatus('就绪（预览模式）');
-            setVolume(1.0);
-        }
+        // pywebview 异步注入 JS bridge，页面加载时 window.pywebview 尚未定义。
+        // 用 pywebviewready 事件 + 延时双重检测来区分真实环境和浏览器预览。
+        var _pywebviewReady = false;
+        window.addEventListener('pywebviewready', function() {
+            _pywebviewReady = true;
+        });
+        setTimeout(function() {
+            if (!_pywebviewReady && !window.pywebview) {
+                initButtons([
+                    { label: '欢迎光临', file: '欢迎.mp3' },
+                    { label: '禁止烟头', file: '烟头.mp3' },
+                    { label: '加时提醒', file: '关灯.mp3' },
+                    { label: '离店提醒', file: '离店.mp3' }
+                ], '六六台球俱乐部播报系统');
+                updateStatus('就绪（预览模式）');
+                setVolume(1.0);
+            }
+        }, 800);
     </script>
 </body>
 </html>
